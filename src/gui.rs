@@ -143,15 +143,15 @@ impl eframe::App for RokuRemote {
             ui.separator();
 
             ui.horizontal(|ui| {
-                if ui.add(remote_btn("⏻ Power", [80.0, 32.0])).clicked() {
+                if ui.add(remote_btn("Power", [80.0, 32.0])).clicked() {
                     self.send("Power");
                 }
                 let space = ui.available_width() - 160.0;
                 ui.add_space(space.max(8.0));
-                if ui.add(remote_btn("⌂ Home", [72.0, 32.0])).clicked() {
+                if ui.add(remote_btn("Home", [72.0, 32.0])).clicked() {
                     self.send("Home");
                 }
-                if ui.add(remote_btn("← Back", [72.0, 32.0])).clicked() {
+                if ui.add(remote_btn("Back", [72.0, 32.0])).clicked() {
                     self.send("Back");
                 }
             });
@@ -163,25 +163,25 @@ impl eframe::App for RokuRemote {
                     .spacing([4.0, 4.0])
                     .show(ui, |ui| {
                         ui.label("");
-                        if ui.add(remote_btn("▲", [64.0, 38.0])).clicked() {
+                        if ui.add(remote_btn("Up", [64.0, 38.0])).clicked() {
                             self.send("Up");
                         }
                         ui.label("");
                         ui.end_row();
 
-                        if ui.add(remote_btn("◀", [64.0, 38.0])).clicked() {
+                        if ui.add(remote_btn("Left", [64.0, 38.0])).clicked() {
                             self.send("Left");
                         }
                         if ui.add(remote_btn("OK", [64.0, 38.0])).clicked() {
                             self.send("Select");
                         }
-                        if ui.add(remote_btn("▶", [64.0, 38.0])).clicked() {
+                        if ui.add(remote_btn("Right", [64.0, 38.0])).clicked() {
                             self.send("Right");
                         }
                         ui.end_row();
 
                         ui.label("");
-                        if ui.add(remote_btn("▼", [64.0, 38.0])).clicked() {
+                        if ui.add(remote_btn("Down", [64.0, 38.0])).clicked() {
                             self.send("Down");
                         }
                         ui.label("");
@@ -193,13 +193,13 @@ impl eframe::App for RokuRemote {
 
             ui.vertical_centered(|ui| {
                 ui.horizontal(|ui| {
-                    if ui.add(remote_btn("⏪", [64.0, 36.0])).clicked() {
+                    if ui.add(remote_btn("Rev", [64.0, 36.0])).clicked() {
                         self.send("Rev");
                     }
-                    if ui.add(remote_btn("⏯", [64.0, 36.0])).clicked() {
+                    if ui.add(remote_btn("Play", [64.0, 36.0])).clicked() {
                         self.send("Play");
                     }
-                    if ui.add(remote_btn("⏩", [64.0, 36.0])).clicked() {
+                    if ui.add(remote_btn("Fwd", [64.0, 36.0])).clicked() {
                         self.send("Fwd");
                     }
                 });
@@ -209,7 +209,7 @@ impl eframe::App for RokuRemote {
 
             ui.vertical_centered(|ui| {
                 ui.horizontal(|ui| {
-                    if ui.add(remote_btn("Vol−", [64.0, 36.0])).clicked() {
+                    if ui.add(remote_btn("Vol-", [64.0, 36.0])).clicked() {
                         self.send("VolumeDown");
                     }
                     if ui.add(remote_btn("Mute", [64.0, 36.0])).clicked() {
@@ -225,10 +225,10 @@ impl eframe::App for RokuRemote {
 
             ui.vertical_centered(|ui| {
                 ui.horizontal(|ui| {
-                    if ui.add(remote_btn("★ Info", [64.0, 36.0])).clicked() {
+                    if ui.add(remote_btn("Info", [64.0, 36.0])).clicked() {
                         self.send("Info");
                     }
-                    if ui.add(remote_btn("↺ Replay", [72.0, 36.0])).clicked() {
+                    if ui.add(remote_btn("Replay", [72.0, 36.0])).clicked() {
                         self.send("InstantReplay");
                     }
                     if ui.add(remote_btn("Search", [64.0, 36.0])).clicked() {
