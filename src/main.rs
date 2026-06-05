@@ -1,11 +1,8 @@
-mod config;
-mod discover;
-mod ecp;
-
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
-use config::Config;
-use ecp::Roku;
+use roku_cli::config::Config;
+use roku_cli::discover;
+use roku_cli::ecp::{self, Roku};
 
 #[derive(Parser)]
 #[command(name = "roku", about = "Control a Roku device directly over ECP (LAN)")]
@@ -56,25 +53,81 @@ enum Command {
         action: ConfigAction,
     },
     /// Press Home
-    Home,
+    Home {
+        #[arg(default_value = "1")]
+        count: u32,
+    },
     /// Press Back
-    Back,
+    Back {
+        #[arg(default_value = "1")]
+        count: u32,
+    },
     /// Press Select (OK)
-    Select,
+    #[command(alias = "ok")]
+    Select {
+        #[arg(default_value = "1")]
+        count: u32,
+    },
     /// Press Up
-    Up,
+    Up {
+        #[arg(default_value = "1")]
+        count: u32,
+    },
     /// Press Down
-    Down,
+    Down {
+        #[arg(default_value = "1")]
+        count: u32,
+    },
     /// Press Left
-    Left,
+    Left {
+        #[arg(default_value = "1")]
+        count: u32,
+    },
     /// Press Right
-    Right,
+    Right {
+        #[arg(default_value = "1")]
+        count: u32,
+    },
     /// Play / Pause toggle
-    Play,
+    Play {
+        #[arg(default_value = "1")]
+        count: u32,
+    },
     /// Rewind
-    Rewind,
+    Rewind {
+        #[arg(default_value = "1")]
+        count: u32,
+    },
     /// Fast-forward
-    Forward,
+    Forward {
+        #[arg(default_value = "1")]
+        count: u32,
+    },
+    /// Volume up (repeatable: `roku vol-up 5`)
+    #[command(alias = "volup")]
+    VolUp {
+        /// Number of steps (default 1)
+        #[arg(default_value = "1")]
+        steps: u32,
+    },
+    /// Volume down (repeatable: `roku vol-down 5`)
+    #[command(alias = "voldown")]
+    VolDown {
+        /// Number of steps (default 1)
+        #[arg(default_value = "1")]
+        steps: u32,
+    },
+    /// Set volume to an absolute level (0–100)
+    #[command(alias = "volset")]
+    VolSet {
+        /// Target volume level
+        level: u32,
+    },
+    /// Toggle mute
+    Mute {
+        #[arg(default_value = "1")]
+        count: u32,
+    },
 }
 
 #[derive(Subcommand)]
@@ -138,24 +191,37 @@ fn main() -> Result<()> {
             roku.keypress(key)?;
             println!("power {}", state);
         }
-        Command::Home => press(&roku, "Home")?,
-        Command::Back => press(&roku, "Back")?,
-        Command::Select => press(&roku, "Select")?,
-        Command::Up => press(&roku, "Up")?,
-        Command::Down => press(&roku, "Down")?,
-        Command::Left => press(&roku, "Left")?,
-        Command::Right => press(&roku, "Right")?,
-        Command::Play => press(&roku, "Play")?,
-        Command::Rewind => press(&roku, "Rev")?,
-        Command::Forward => press(&roku, "Fwd")?,
+        Command::Home { count } => repeat(&roku, "Home", count)?,
+        Command::Back { count } => repeat(&roku, "Back", count)?,
+        Command::Select { count } => repeat(&roku, "Select", count)?,
+        Command::Up { count } => repeat(&roku, "Up", count)?,
+        Command::Down { count } => repeat(&roku, "Down", count)?,
+        Command::Left { count } => repeat(&roku, "Left", count)?,
+        Command::Right { count } => repeat(&roku, "Right", count)?,
+        Command::Play { count } => repeat(&roku, "Play", count)?,
+        Command::Rewind { count } => repeat(&roku, "Rev", count)?,
+        Command::Forward { count } => repeat(&roku, "Fwd", count)?,
+        Command::VolUp { steps } => repeat(&roku, "VolumeUp", steps)?,
+        Command::VolDown { steps } => repeat(&roku, "VolumeDown", steps)?,
+        Command::VolSet { level } => {
+            let level = level.min(100);
+            repeat(&roku, "VolumeDown", 100)?;
+            if level > 0 {
+                repeat(&roku, "VolumeUp", level)?;
+            }
+            println!("volume set to {}", level);
+        }
+        Command::Mute { count } => repeat(&roku, "VolumeMute", count)?,
         Command::Discover | Command::Config { .. } => unreachable!(),
     }
     Ok(())
 }
 
-fn press(roku: &Roku, key: &str) -> Result<()> {
-    roku.keypress(key)?;
-    println!("sent {}", key);
+fn repeat(roku: &Roku, key: &str, steps: u32) -> Result<()> {
+    for _ in 0..steps {
+        roku.keypress(key)?;
+    }
+    println!("sent {} x{}", key, steps);
     Ok(())
 }
 
