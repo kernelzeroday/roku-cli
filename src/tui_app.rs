@@ -15,12 +15,13 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame, Terminal,
 };
-use roku_cli::config::Config;
-use roku_cli::discover;
-use roku_cli::ecp::Roku;
 
-fn main() -> Result<()> {
-    let ip = resolve_ip()?;
+use crate::config::Config;
+use crate::discover;
+use crate::ecp::Roku;
+
+pub fn run(ip_override: Option<String>) -> Result<()> {
+    let ip = resolve_ip(ip_override)?;
     let roku = Roku::new(&ip);
 
     enable_raw_mode()?;
@@ -28,7 +29,7 @@ fn main() -> Result<()> {
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run(&mut terminal, &roku, &ip);
+    let result = event_loop(&mut terminal, &roku, &ip);
 
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen)?;
@@ -36,7 +37,7 @@ fn main() -> Result<()> {
     result
 }
 
-fn run(
+fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     roku: &Roku,
     ip: &str,
@@ -201,7 +202,10 @@ fn draw(f: &mut Frame, ip: &str, status: &str, highlight: Option<&str>) {
     f.render_widget(help, chunks[2]);
 }
 
-fn resolve_ip() -> Result<String> {
+fn resolve_ip(ip_override: Option<String>) -> Result<String> {
+    if let Some(ip) = ip_override {
+        return Ok(ip);
+    }
     if let Ok(ip) = std::env::var("ROKU_IP") {
         if !ip.is_empty() {
             return Ok(ip);

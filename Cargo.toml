@@ -11,16 +11,6 @@ path = "src/lib.rs"
 name = "roku"
 path = "src/main.rs"
 
-[[bin]]
-name = "roku-gui"
-path = "src/gui.rs"
-required-features = ["gui"]
-
-[[bin]]
-name = "roku-tui"
-path = "src/tui_app.rs"
-required-features = ["tui"]
-
 [features]
 default = []
 gui = ["dep:eframe"]

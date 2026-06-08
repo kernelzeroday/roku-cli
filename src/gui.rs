@@ -1,9 +1,11 @@
+use anyhow::Result;
 use eframe::egui;
-use roku_cli::config::Config;
-use roku_cli::discover;
-use roku_cli::ecp::Roku;
 
-fn main() -> eframe::Result<()> {
+use crate::config::Config;
+use crate::discover;
+use crate::ecp::Roku;
+
+pub fn run(ip_override: Option<String>) -> Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([380.0, 580.0])
@@ -13,8 +15,9 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Roku Remote",
         options,
-        Box::new(|_cc| Ok(Box::new(RokuRemote::new()))),
+        Box::new(move |_cc| Ok(Box::new(RokuRemote::new(ip_override)))),
     )
+    .map_err(|e| anyhow::anyhow!("{}", e))
 }
 
 struct RokuRemote {
@@ -25,27 +28,20 @@ struct RokuRemote {
 }
 
 impl RokuRemote {
-    fn new() -> Self {
+    fn new(ip_override: Option<String>) -> Self {
         let mut app = Self {
             roku: None,
             ip_input: String::new(),
             text_input: String::new(),
             status: "Disconnected".into(),
         };
-        if let Ok(ip) = std::env::var("ROKU_IP") {
-            if !ip.is_empty() {
-                app.ip_input = ip.clone();
-                app.roku = Some(Roku::new(&ip));
-                app.status = format!("Ready: {}", ip);
-                return app;
-            }
-        }
-        if let Ok(cfg) = Config::load() {
-            if let Some(ip) = cfg.roku_ip {
-                app.ip_input = ip.clone();
-                app.roku = Some(Roku::new(&ip));
-                app.status = format!("Ready: {}", ip);
-            }
+        let ip = ip_override
+            .or_else(|| std::env::var("ROKU_IP").ok().filter(|s| !s.is_empty()))
+            .or_else(|| Config::load().ok().and_then(|c| c.roku_ip));
+        if let Some(ip) = ip {
+            app.ip_input = ip.clone();
+            app.roku = Some(Roku::new(&ip));
+            app.status = format!("Ready: {}", ip);
         }
         app
     }

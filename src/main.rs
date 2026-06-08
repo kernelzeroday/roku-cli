@@ -128,6 +128,12 @@ enum Command {
         #[arg(default_value = "1")]
         count: u32,
     },
+    /// Launch interactive TUI remote
+    #[cfg(feature = "tui")]
+    Tui,
+    /// Launch graphical GUI remote
+    #[cfg(feature = "gui")]
+    Gui,
 }
 
 #[derive(Subcommand)]
@@ -144,6 +150,10 @@ fn main() -> Result<()> {
     match &cli.command {
         Command::Discover => return cmd_discover(),
         Command::Config { action } => return cmd_config(action),
+        #[cfg(feature = "tui")]
+        Command::Tui => return roku_cli::tui_app::run(cli.ip),
+        #[cfg(feature = "gui")]
+        Command::Gui => return roku_cli::gui::run(cli.ip),
         _ => {}
     }
 
@@ -213,6 +223,10 @@ fn main() -> Result<()> {
         }
         Command::Mute { count } => repeat(&roku, "VolumeMute", count)?,
         Command::Discover | Command::Config { .. } => unreachable!(),
+        #[cfg(feature = "tui")]
+        Command::Tui => unreachable!(),
+        #[cfg(feature = "gui")]
+        Command::Gui => unreachable!(),
     }
     Ok(())
 }
