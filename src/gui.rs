@@ -107,7 +107,9 @@ impl eframe::App for RokuRemote {
                 let r = ui.add(
                     egui::TextEdit::singleline(&mut self.ip_input).desired_width(140.0),
                 );
-                if r.has_focus() {
+                // lost_focus covers the frame Enter is pressed, so the global
+                // key handler doesn't also fire a Select keypress
+                if r.has_focus() || r.lost_focus() {
                     text_focused = true;
                 }
                 if ui.button("Connect").clicked()
@@ -241,7 +243,7 @@ impl eframe::App for RokuRemote {
                 let r = ui.add(
                     egui::TextEdit::singleline(&mut self.text_input).desired_width(200.0),
                 );
-                if r.has_focus() {
+                if r.has_focus() || r.lost_focus() {
                     text_focused = true;
                 }
                 if ui.button("Type").clicked() {

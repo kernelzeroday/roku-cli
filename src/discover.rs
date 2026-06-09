@@ -16,7 +16,10 @@ pub fn discover(timeout_secs: u64) -> Result<Vec<Found>> {
         MAN: \"ssdp:discover\"\r\n\
         ST: roku:ecp\r\n\
         MX: 2\r\n\r\n";
-    socket.send_to(msg.as_bytes(), "239.255.255.250:1900")?;
+    // UDP is lossy; send the probe a few times (responses are deduped below)
+    for _ in 0..3 {
+        socket.send_to(msg.as_bytes(), "239.255.255.250:1900")?;
+    }
 
     let mut found = Vec::new();
     let mut seen = HashSet::new();

@@ -114,7 +114,7 @@ fn draw(f: &mut Frame, ip: &str, status: &str, highlight: Option<&str>) {
     f.render_widget(title, chunks[0]);
 
     let hl = |key: &str, label: &str| -> Span {
-        let is_hl = highlight.map_or(false, |h| {
+        let is_hl = highlight.is_some_and(|h| {
             h == key || (key == "Power" && (h == "PowerOff" || h == "PowerOn"))
         });
         if is_hl {

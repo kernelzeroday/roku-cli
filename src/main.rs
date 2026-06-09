@@ -215,9 +215,11 @@ fn main() -> Result<()> {
         Command::VolDown { steps } => repeat(&roku, "VolumeDown", steps)?,
         Command::VolSet { level } => {
             let level = level.min(100);
-            repeat(&roku, "VolumeDown", 100)?;
-            if level > 0 {
-                repeat(&roku, "VolumeUp", level)?;
+            for _ in 0..100 {
+                roku.keypress("VolumeDown")?;
+            }
+            for _ in 0..level {
+                roku.keypress("VolumeUp")?;
             }
             println!("volume set to {}", level);
         }
