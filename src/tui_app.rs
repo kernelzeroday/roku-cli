@@ -44,20 +44,60 @@ fn event_loop(
 ) -> Result<()> {
     let mut status = "Ready".to_string();
     let mut highlight: Option<String> = None;
+    let mut text_mode = false;
+    let mut text_buffer = String::new();
 
     loop {
-        terminal.draw(|f| draw(f, ip, &status, highlight.as_deref()))?;
+        terminal.draw(|f| {
+            draw(
+                f,
+                ip,
+                &status,
+                highlight.as_deref(),
+                if text_mode { Some(&text_buffer) } else { None },
+            )
+        })?;
 
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind != KeyEventKind::Press {
                     continue;
                 }
+                if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)
+                {
+                    return Ok(());
+                }
+
+                if text_mode {
+                    match key.code {
+                        KeyCode::Esc => {
+                            text_mode = false;
+                            text_buffer.clear();
+                            status = "Cancelled".to_string();
+                        }
+                        KeyCode::Enter => {
+                            text_mode = false;
+                            if !text_buffer.is_empty() {
+                                match roku.type_text(&text_buffer) {
+                                    Ok(()) => status = format!("Typed: {}", text_buffer),
+                                    Err(e) => status = format!("Error: {}", e),
+                                }
+                            }
+                            text_buffer.clear();
+                        }
+                        KeyCode::Backspace => {
+                            text_buffer.pop();
+                        }
+                        KeyCode::Char(c) => {
+                            text_buffer.push(c);
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 let ecp_key = match key.code {
                     KeyCode::Char('q') => return Ok(()),
-                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        return Ok(())
-                    }
                     KeyCode::Up => Some("Up"),
                     KeyCode::Down => Some("Down"),
                     KeyCode::Left => Some("Left"),
@@ -77,6 +117,12 @@ fn event_loop(
                     KeyCode::Char('w') => Some("Rev"),
                     KeyCode::Char('o') => Some("PowerOff"),
                     KeyCode::Char('O') => Some("PowerOn"),
+                    KeyCode::Char('t') => {
+                        text_mode = true;
+                        status = "Typing (Enter:send  Esc:cancel)".to_string();
+                        highlight = None;
+                        None
+                    }
                     _ => None,
                 };
                 if let Some(k) = ecp_key {
@@ -91,7 +137,7 @@ fn event_loop(
     }
 }
 
-fn draw(f: &mut Frame, ip: &str, status: &str, highlight: Option<&str>) {
+fn draw(f: &mut Frame, ip: &str, status: &str, highlight: Option<&str>, typing: Option<&str>) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -183,18 +229,27 @@ fn draw(f: &mut Frame, ip: &str, status: &str, highlight: Option<&str>) {
         .block(Block::default().borders(Borders::LEFT | Borders::RIGHT));
     f.render_widget(remote, chunks[1]);
 
-    let help = Paragraph::new(vec![
-        Line::from(""),
-        Line::from(Span::styled(
+    let status_line = match typing {
+        Some(buf) => Line::from(vec![
+            Span::styled("  Type: ", Style::default().fg(Color::Yellow)),
+            Span::styled(buf, Style::default().fg(Color::White)),
+            Span::styled("█", Style::default().fg(Color::Yellow)),
+        ]),
+        None => Line::from(Span::styled(
             format!("  {}", status),
             Style::default().fg(Color::Green),
         )),
+    };
+
+    let help = Paragraph::new(vec![
+        Line::from(""),
+        status_line,
         Line::from(Span::styled(
             "  ←↑↓→:Nav  Enter:OK  Bksp:Back  Esc/h:Home  Space/p:Play",
             Style::default().fg(Color::DarkGray),
         )),
         Line::from(Span::styled(
-            "  m:Mute  +/-:Vol  w:Rew  f:Fwd  i:Info  r:Replay  q:Quit",
+            "  m:Mute  +/-:Vol  w:Rew  f:Fwd  i:Info  r:Replay  t:Type  q:Quit",
             Style::default().fg(Color::DarkGray),
         )),
     ])
