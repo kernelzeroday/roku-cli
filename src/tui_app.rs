@@ -340,7 +340,7 @@ fn draw(
         .constraints([
             Constraint::Length(3),
             Constraint::Min(0),
-            Constraint::Length(5),
+            Constraint::Length(6),
         ])
         .split(f.area());
 
@@ -577,5 +577,24 @@ mod tests {
             .collect();
         assert!(rendered.contains("Living Room — 192.0.2.10"));
         assert!(rendered.contains("Bedroom — 192.0.2.11"));
+    }
+
+    #[test]
+    fn help_lists_text_entry_shortcut() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal
+            .draw(|frame| draw(frame, "192.0.2.1", "Ready", None, None, None))
+            .unwrap();
+
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(rendered.contains("t:Type"));
     }
 }
