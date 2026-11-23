@@ -5,6 +5,7 @@
 //! poller thread keeps the device name / active app fresh. That keeps
 //! rendering and input at a steady frame rate even on a slow or flaky LAN.
 
+use std::cell::RefCell;
 use std::io;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -13,7 +14,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+        KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -55,7 +59,7 @@ pub fn run(ip_override: Option<String>) -> Result<()> {
     let ip = resolve_ip(ip_override)?;
 
     enable_raw_mode()?;
-    execute!(io::stdout(), EnterAlternateScreen)?;
+    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     terminal.hide_cursor()?;
 
@@ -63,7 +67,7 @@ pub fn run(ip_override: Option<String>) -> Result<()> {
 
     let _ = terminal.show_cursor();
     disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen)?;
+    execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
     result
 }
 
@@ -351,6 +355,9 @@ struct App {
     in_flight: usize,
     discovering: bool,
     started: Instant,
+    /// Clickable regions from the last frame, topmost last.
+    hits: RefCell<Vec<(Rect, Hit)>>,
+    hover: Option<(u16, u16)>,
 }
 
 impl App {
@@ -370,6 +377,8 @@ impl App {
             in_flight: 0,
             discovering: false,
             started: now,
+            hits: RefCell::new(Vec::new()),
+            hover: None,
         }
     }
 
@@ -539,11 +548,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Outcome {
 
     match key.code {
         KeyCode::Char('q') => Outcome::Quit,
-        KeyCode::Char('t') => {
-            app.flash = Some(("Type", Instant::now()));
-            app.typing = Some(String::new());
-            Outcome::Continue
-        }
+        KeyCode::Char('t') => press_button(app, "Type"),
         code => match remote_key(code) {
             Some((id, ecp_key)) => {
                 app.flash = Some((id, Instant::now()));
@@ -551,6 +556,87 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Outcome {
             }
             None => Outcome::Continue,
         },
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Hit {
+    Button(&'static str),
+    Device(usize),
+    /// Inside a popup but not on anything clickable; swallows the click.
+    Popup,
+}
+
+impl App {
+    fn hit_at(&self, col: u16, row: u16) -> Option<Hit> {
+        self.hits
+            .borrow()
+            .iter()
+            .rev()
+            .find(|(r, _)| r.contains((col, row).into()))
+            .map(|(_, h)| *h)
+    }
+
+    fn hovered(&self, id: &str) -> bool {
+        self.hover
+            .and_then(|(c, r)| self.hit_at(c, r))
+            .is_some_and(|h| matches!(h, Hit::Button(b) if b == id))
+    }
+}
+
+/// What clicking a remote button does, by button id.
+fn press_button(app: &mut App, id: &'static str) -> Outcome {
+    app.flash = Some((id, Instant::now()));
+    let ecp_key = match id {
+        "Type" => {
+            app.typing = Some(String::new());
+            return Outcome::Continue;
+        }
+        // The on-screen button toggles; o / O on the keyboard force off / on.
+        "Power" => "Power",
+        other => other,
+    };
+    Outcome::Send(Cmd::Do(PendingAction::Keypress(ecp_key.to_string())))
+}
+
+fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Outcome {
+    let (col, row) = (mouse.column, mouse.row);
+    match mouse.kind {
+        MouseEventKind::Moved | MouseEventKind::Drag(_) => {
+            app.hover = Some((col, row));
+            if let Some(Hit::Device(i)) = app.hit_at(col, row) {
+                if let Some(r) = app.recovery.as_mut() {
+                    r.selected = i;
+                }
+            }
+            Outcome::Continue
+        }
+        MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+            if let Some(r) = app.recovery.as_mut() {
+                r.selected = if mouse.kind == MouseEventKind::ScrollUp {
+                    r.selected.saturating_sub(1)
+                } else {
+                    (r.selected + 1).min(r.devices.len() - 1)
+                };
+            }
+            Outcome::Continue
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            app.hover = Some((col, row));
+            match app.hit_at(col, row) {
+                Some(Hit::Device(i)) if app.recovery.is_some() => {
+                    let r = app.recovery.take().expect("checked above");
+                    let choice = r.devices[i].clone();
+                    app.set_status(format!("Connecting to {}…", choice.ip), Tone::Busy);
+                    Outcome::Send(Cmd::Choose(choice, r.pending))
+                }
+                // Modal popups block the remote underneath.
+                _ if app.recovery.is_some() || app.typing.is_some() => Outcome::Continue,
+                Some(Hit::Button(id)) => press_button(app, id),
+                _ => Outcome::Continue,
+            }
+        }
+        _ => Outcome::Continue,
     }
 }
 
@@ -584,14 +670,15 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, ip: String)
         // Drain every pending event before redrawing, so held-down keys
         // don't fall behind the screen.
         loop {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    match handle_key(&mut app, key) {
-                        Outcome::Quit => return Ok(()),
-                        Outcome::Send(cmd) => send(&mut app, cmd),
-                        Outcome::Continue => {}
-                    }
-                }
+            let outcome = match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => handle_key(&mut app, key),
+                Event::Mouse(mouse) => handle_mouse(&mut app, mouse),
+                _ => Outcome::Continue,
+            };
+            match outcome {
+                Outcome::Quit => return Ok(()),
+                Outcome::Send(cmd) => send(&mut app, cmd),
+                Outcome::Continue => {}
             }
             if !event::poll(Duration::ZERO)? {
                 break;
@@ -682,6 +769,7 @@ fn card_height(d: Density) -> u16 {
 }
 
 fn draw(f: &mut Frame, app: &App) {
+    app.hits.borrow_mut().clear();
     let area = f.area();
     f.render_widget(
         Block::default().style(Style::default().bg(Color::Reset)),
@@ -725,7 +813,7 @@ fn draw(f: &mut Frame, app: &App) {
         draw_typing(f, app, card);
     }
     if let Some(recovery) = &app.recovery {
-        draw_recovery(f, recovery, area);
+        draw_recovery(f, app, recovery, area);
     }
 }
 
@@ -874,14 +962,24 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_button(f: &mut Frame, app: &App, area: Rect, b: &Button) {
+    app.hits.borrow_mut().push((area, Hit::Button(b.id)));
     let t = app.flash_strength(b.id);
+    let hover = if app.hovered(b.id) && app.typing.is_none() && app.recovery.is_none() {
+        0.18
+    } else {
+        0.0
+    };
     let (base_bg, base_border, label_fg) = match b.kind {
         Kind::Normal => (BTN_BG, BTN_BORDER, TEXT),
         Kind::Primary => (ACCENT_BG, ACCENT, TEXT),
         Kind::Danger => (BTN_BG, BTN_BORDER, DANGER),
     };
-    let bg = blend(base_bg, PRESS_BG, t);
-    let border = blend(base_border, ACCENT, t.max(if t > 0.0 { 0.6 } else { 0.0 }));
+    let bg = blend(base_bg, PRESS_BG, t.max(hover));
+    let border = blend(
+        base_border,
+        ACCENT,
+        t.max(if t > 0.0 { 0.6 } else { 0.0 }).max(hover * 3.0),
+    );
     let fg = blend(label_fg, Color::Rgb(255, 255, 255), t);
     let hint_fg = blend(DIM, Color::Rgb(230, 220, 255), t);
 
@@ -979,6 +1077,7 @@ fn draw_typing(f: &mut Frame, app: &App, card: Rect) {
     let buffer = app.typing.as_deref().unwrap_or("");
     let width = card.width.saturating_sub(4).max(20).min(f.area().width);
     let area = centered_rect(width, 5, f.area());
+    app.hits.borrow_mut().push((area, Hit::Popup));
     let cursor_on = (app.started.elapsed().as_millis() / 530).is_multiple_of(2);
 
     // Keep the tail of long input visible.
@@ -1019,7 +1118,7 @@ fn draw_typing(f: &mut Frame, app: &App, card: Rect) {
     f.render_widget(Paragraph::new(text).block(block), area);
 }
 
-fn draw_recovery(f: &mut Frame, recovery: &Recovery, screen: Rect) {
+fn draw_recovery(f: &mut Frame, app: &App, recovery: &Recovery, screen: Rect) {
     let height = (recovery.devices.len() as u16 + 4).min(screen.height);
     let area = centered_rect(56, height, screen);
     let items = recovery.devices.iter().map(|device| {
@@ -1060,6 +1159,24 @@ fn draw_recovery(f: &mut Frame, recovery: &Recovery, screen: Rect) {
     let mut state = ListState::default().with_selected(Some(recovery.selected));
     f.render_widget(Clear, area);
     f.render_stateful_widget(list, area, &mut state);
+
+    let mut hits = app.hits.borrow_mut();
+    hits.push((area, Hit::Popup));
+    // Rows sit inside the border and one line of padding.
+    let first = area.y + 2;
+    for i in 0..recovery.devices.len() {
+        let y = first + i as u16;
+        if y + 2 > area.bottom() {
+            break;
+        }
+        let row = Rect {
+            x: area.x + 1,
+            y,
+            width: area.width.saturating_sub(2),
+            height: 1,
+        };
+        hits.push((row, Hit::Device(i)));
+    }
 }
 
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
@@ -1198,6 +1315,85 @@ mod tests {
             _ => panic!("expected text"),
         }
         assert!(app.typing.is_none());
+    }
+
+    fn click(app: &mut App, col: u16, row: u16) -> Outcome {
+        handle_mouse(
+            app,
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: col,
+                row,
+                modifiers: KeyModifiers::NONE,
+            },
+        )
+    }
+
+    fn rect_of(app: &App, hit: Hit) -> Rect {
+        app.hits
+            .borrow()
+            .iter()
+            .find(|(_, h)| *h == hit)
+            .map(|(r, _)| *r)
+            .expect("hit region drawn")
+    }
+
+    #[test]
+    fn clicking_buttons_sends_keys_at_every_density() {
+        for (w, h) in [(80, 40), (80, 24), (50, 16)] {
+            let mut app = App::new("192.0.2.1".to_string());
+            render(&app, w, h);
+            let ok = rect_of(&app, Hit::Button("Select"));
+            match click(&mut app, ok.x + ok.width / 2, ok.y + ok.height / 2) {
+                Outcome::Send(Cmd::Do(PendingAction::Keypress(k))) => assert_eq!(k, "Select"),
+                _ => panic!("expected Select at {}x{}", w, h),
+            }
+            assert!(matches!(click(&mut app, 0, 0), Outcome::Continue));
+        }
+    }
+
+    #[test]
+    fn clicking_type_opens_popup_which_blocks_remote() {
+        let mut app = App::new("192.0.2.1".to_string());
+        render(&app, 80, 40);
+        let ty = rect_of(&app, Hit::Button("Type"));
+        let up = rect_of(&app, Hit::Button("Up"));
+        assert!(matches!(
+            click(&mut app, ty.x + 2, ty.y + 1),
+            Outcome::Continue
+        ));
+        assert!(app.typing.is_some());
+        render(&app, 80, 40);
+        assert!(matches!(
+            click(&mut app, up.x + 2, up.y + 1),
+            Outcome::Continue
+        ));
+    }
+
+    #[test]
+    fn clicking_a_device_connects_to_it() {
+        let mut app = App::new("192.0.2.1".to_string());
+        app.recovery = Some(Recovery {
+            devices: vec![
+                DeviceChoice {
+                    ip: "192.0.2.10".to_string(),
+                    name: "A".to_string(),
+                },
+                DeviceChoice {
+                    ip: "192.0.2.11".to_string(),
+                    name: "B".to_string(),
+                },
+            ],
+            selected: 0,
+            pending: None,
+        });
+        render(&app, 80, 24);
+        let row = rect_of(&app, Hit::Device(1));
+        match click(&mut app, row.x + 4, row.y) {
+            Outcome::Send(Cmd::Choose(choice, _)) => assert_eq!(choice.ip, "192.0.2.11"),
+            _ => panic!("expected Choose"),
+        }
+        assert!(app.recovery.is_none());
     }
 
     #[test]
