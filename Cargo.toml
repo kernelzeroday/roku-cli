@@ -12,7 +12,7 @@ name = "roku"
 path = "src/main.rs"
 
 [features]
-default = []
+default = ["tui"]
 gui = ["dep:eframe"]
 tui = ["dep:ratatui", "dep:crossterm"]
 

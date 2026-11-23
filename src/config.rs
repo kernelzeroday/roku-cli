@@ -9,7 +9,9 @@ pub struct Config {
 
 impl Config {
     fn path() -> Result<PathBuf> {
-        let dir = dirs::config_dir().context("no config dir")?.join("roku-cli");
+        let dir = dirs::config_dir()
+            .context("no config dir")?
+            .join("roku-cli");
         std::fs::create_dir_all(&dir)?;
         Ok(dir.join("config.json"))
     }

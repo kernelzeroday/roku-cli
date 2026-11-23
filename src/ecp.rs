@@ -91,7 +91,10 @@ pub fn tag_text(xml: &str, tag: &str) -> Option<String> {
         let i = search.find(&open)?;
         let after = &search[i + open.len()..];
         // Require a delimiter so "<app" doesn't match "<apps>"
-        if !matches!(after.chars().next(), Some('>' | '/' | ' ' | '\t' | '\r' | '\n')) {
+        if !matches!(
+            after.chars().next(),
+            Some('>' | '/' | ' ' | '\t' | '\r' | '\n')
+        ) {
             search = after;
             continue;
         }
@@ -208,9 +211,7 @@ fn content_length(head: &str) -> Option<usize> {
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 fn percent_encode(s: &str) -> String {

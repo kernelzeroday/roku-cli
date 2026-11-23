@@ -10,8 +10,9 @@ struct Cli {
     /// Roku IP address (overrides config, ROKU_IP env, and discovery)
     #[arg(long, global = true)]
     ip: Option<String>,
+    /// With no subcommand, opens the interactive TUI remote
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -128,7 +129,7 @@ enum Command {
         #[arg(default_value = "1")]
         count: u32,
     },
-    /// Launch interactive TUI remote
+    /// Launch interactive TUI remote (the default when no subcommand is given)
     #[cfg(feature = "tui")]
     Tui,
     /// Launch graphical GUI remote
@@ -147,7 +148,11 @@ enum ConfigAction {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    match &cli.command {
+    let Some(command) = cli.command else {
+        return default_view(cli.ip);
+    };
+
+    match &command {
         Command::Discover => return cmd_discover(),
         Command::Config { action } => return cmd_config(action),
         #[cfg(feature = "tui")]
@@ -160,7 +165,7 @@ fn main() -> Result<()> {
     let ip = resolve_ip(cli.ip.clone())?;
     let roku = Roku::new(&ip);
 
-    match cli.command {
+    match command {
         Command::Key { keys } => {
             for k in &keys {
                 roku.keypress(&normalize_key(k))?;
@@ -230,6 +235,27 @@ fn main() -> Result<()> {
         #[cfg(feature = "gui")]
         Command::Gui => unreachable!(),
     }
+    Ok(())
+}
+
+#[cfg(feature = "tui")]
+fn default_view(ip: Option<String>) -> Result<()> {
+    use std::io::IsTerminal;
+    if std::io::stdout().is_terminal() && std::io::stdin().is_terminal() {
+        roku_cli::tui_app::run(ip)
+    } else {
+        print_help()
+    }
+}
+
+#[cfg(not(feature = "tui"))]
+fn default_view(_ip: Option<String>) -> Result<()> {
+    print_help()
+}
+
+fn print_help() -> Result<()> {
+    use clap::CommandFactory;
+    Cli::command().print_help()?;
     Ok(())
 }
 
